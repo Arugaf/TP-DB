@@ -8,6 +8,10 @@ CREATE TABLE IF NOT EXISTS "users"
     Nickname citext PRIMARY KEY
 );
 
+CREATE INDEX IF NOT EXISTS users_nickname_lower_index ON users (lower(users.Nickname));
+CREATE INDEX IF NOT EXISTS users_nickname_index ON users ((users.Nickname));
+CREATE INDEX IF NOT EXISTS users_email_index ON users (lower(Email));
+
 CREATE TABLE IF NOT EXISTS forum
 (
     "user"  citext,
@@ -18,10 +22,12 @@ CREATE TABLE IF NOT EXISTS forum
     FOREIGN KEY ("user") REFERENCES "users" (nickname)
 );
 
+CREATE INDEX IF NOT EXISTS forum_slug_lower_index ON forum (lower(forum.Slug));
+
 CREATE TABLE IF NOT EXISTS thread
 (
     author  citext,
-    created timestamp with time zone default now(),
+    created timestamp with time zone default current_timestamp,
     forum   citext,
     id      SERIAL PRIMARY KEY,
     message text NOT NULL,
@@ -31,6 +37,13 @@ CREATE TABLE IF NOT EXISTS thread
     FOREIGN KEY (author) REFERENCES "users" (nickname),
     FOREIGN KEY (forum) REFERENCES "forum" (slug)
 );
+
+CREATE INDEX IF NOT EXISTS thread_slug_lower_index ON thread (lower(slug));
+CREATE INDEX IF NOT EXISTS thread_slug_index ON thread (slug);
+CREATE INDEX IF NOT EXISTS thread_slug_id_index ON thread (lower(slug), id);
+CREATE INDEX IF NOT EXISTS thread_forum_lower_index ON thread (lower(forum));
+CREATE INDEX IF NOT EXISTS thread_id_forum_index ON thread (id, forum);
+CREATE INDEX IF NOT EXISTS thread_created_index ON thread (created);
 
 CREATE OR REPLACE FUNCTION update_user_forum() RETURNS TRIGGER AS
 $update_users_forum$
@@ -44,7 +57,7 @@ $update_users_forum$ LANGUAGE plpgsql;
 CREATE TABLE IF NOT EXISTS post
 (
     author   citext NOT NULL,
-    created  timestamp with time zone default now(),
+    created  timestamp with time zone default current_timestamp,
     forum    citext,
     id       BIGSERIAL PRIMARY KEY,
     isEdited BOOLEAN                  DEFAULT FALSE,
@@ -52,11 +65,17 @@ CREATE TABLE IF NOT EXISTS post
     parent   BIGINT                   DEFAULT 0,
     thread   INT,
     path     BIGINT[]                 default array []::INTEGER[],
-    FOREIGN KEY (author) REFERENCES "users" (nickname),
-    FOREIGN KEY (forum) REFERENCES "forum" (slug),
-    FOREIGN KEY (thread) REFERENCES "thread" (id),
-    FOREIGN KEY (parent) REFERENCES "post" (id)
+    FOREIGN KEY (author) REFERENCES "users" (nickname)
 );
+
+CREATE INDEX IF NOT EXISTS post_first_parent_thread_index ON post ((post.path[1]), thread);
+CREATE INDEX IF NOT EXISTS post_first_parent_id_index ON post ((post.path[1]), id);
+CREATE INDEX IF NOT EXISTS post_first_parent_index ON post ((post.path[1]));
+CREATE INDEX IF NOT EXISTS post_path_index ON post ((post.path));
+CREATE INDEX IF NOT EXISTS post_thread_index ON post (thread);
+CREATE INDEX IF NOT EXISTS post_thread_id_index ON post (thread, id);
+CREATE INDEX IF NOT EXISTS post_path_id_index ON post (id, (post.path));
+CREATE INDEX IF NOT EXISTS post_thread_path_id_index ON post (thread, (post.parent), id);
 
 CREATE OR REPLACE FUNCTION update_path() RETURNS TRIGGER AS
 $update_path$
@@ -87,18 +106,21 @@ CREATE TABLE IF NOT EXISTS vote
     idThread INT,
 
     FOREIGN KEY (nickname) REFERENCES "users" (nickname),
-    FOREIGN KEY (idThread) REFERENCES "thread" (id),
     UNIQUE (nickname, idThread)
 );
+
+CREATE INDEX IF NOT EXISTS vote_nickname ON vote (lower(nickname), idThread, voice);
 
 CREATE TABLE IF NOT EXISTS users_forum
 (
     nickname citext NOT NULL,
     Slug     citext NOT NULL,
-    FOREIGN KEY (nickname) REFERENCES "users" (nickname),
-    FOREIGN KEY (Slug) REFERENCES "forum" (Slug),
-    UNIQUE (nickname, Slug)
+    PRIMARY KEY (nickname, Slug)
 );
+
+CREATE INDEX IF NOT EXISTS users_forum_forum_user_index ON users_forum (lower(users_forum.Slug), nickname);
+CREATE INDEX IF NOT EXISTS users_forum_user_index ON users_forum (nickname);
+CREATE INDEX IF NOT EXISTS users_forum_forum_index ON users_forum ((users_forum.Slug));
 
 CREATE OR REPLACE FUNCTION insert_votes() RETURNS TRIGGER AS
 $update_users_forum$
@@ -159,9 +181,3 @@ CREATE TRIGGER edit_vote
     ON vote
     FOR EACH ROW
 EXECUTE PROCEDURE update_votes();
-
-CREATE INDEX IF NOT EXISTS forum_threads ON thread (forum, created);
-
-CREATE INDEX IF NOT EXISTS thread_posts ON post (thread, id);
-CREATE INDEX IF NOT EXISTS thread_post_paths ON post (thread, path);
-CREATE INDEX IF NOT EXISTS main_post_path ON post (path, (path[1]));
